@@ -3,6 +3,7 @@ import { Heart, Calendar, MapPin, Clock, Download, CheckCircle, Search, Users, U
 import QRCodeLib from 'qrcode';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
+import { storage } from './src/storage';
 
 // Toast Notification Component
 interface ToastProps {
@@ -42,26 +43,6 @@ const Toast: React.FC<ToastProps> = ({ message, type, onClose }) => {
       </button>
     </div>
   );
-};
-
-// Storage utility functions
-const storage = {
-  get: async (key: string): Promise<{ value: string | null }> => {
-    try {
-      const value = localStorage.getItem(key);
-      return { value };
-    } catch (error) {
-      console.error('Error getting from storage:', error);
-      return { value: null };
-    }
-  },
-  set: async (key: string, value: string): Promise<void> => {
-    try {
-      localStorage.setItem(key, value);
-    } catch (error) {
-      console.error('Error setting to storage:', error);
-    }
-  }
 };
 
 // Types

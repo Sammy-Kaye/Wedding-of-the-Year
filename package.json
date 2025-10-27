@@ -15,8 +15,10 @@
   "type": "commonjs",
   "dependencies": {
     "@tailwindcss/postcss": "^4.1.16",
+    "@types/firebase": "^2.4.32",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
+    "firebase": "^12.4.0",
     "html2canvas": "^1.4.1",
     "jspdf": "^3.0.3",
     "lucide-react": "^0.548.0",
