@@ -1,8 +1,48 @@
 import React, { useState, useEffect } from 'react';
-import { Heart, Calendar, MapPin, Clock, Download, CheckCircle, Search, Users, UserCheck, QrCode, AlertTriangle, RefreshCw, X, FileText, Shield, Eye } from 'lucide-react';
+import { Heart, Calendar, MapPin, Clock, Download, CheckCircle, Search, Users, UserCheck, QrCode, AlertTriangle, RefreshCw, X, FileText, Shield, Eye, XCircle, Info } from 'lucide-react';
 import QRCodeLib from 'qrcode';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
+
+// Toast Notification Component
+interface ToastProps {
+  message: string;
+  type: 'success' | 'error' | 'warning' | 'info';
+  onClose: () => void;
+}
+
+const Toast: React.FC<ToastProps> = ({ message, type, onClose }) => {
+  useEffect(() => {
+    const timer = setTimeout(onClose, 5000);
+    return () => clearTimeout(timer);
+  }, [onClose]);
+
+  const icons = {
+    success: <CheckCircle className="w-5 h-5" />,
+    error: <XCircle className="w-5 h-5" />,
+    warning: <AlertTriangle className="w-5 h-5" />,
+    info: <Info className="w-5 h-5" />
+  };
+
+  const typeClasses = {
+    success: 'toast-success',
+    error: 'toast-error',
+    warning: 'toast-warning',
+    info: 'toast-info'
+  };
+
+  return (
+    <div className={`toast ${typeClasses[type]} flex items-start gap-3`}>
+      <div className="flex-shrink-0 mt-0.5">{icons[type]}</div>
+      <div className="flex-1">
+        <p className="font-medium text-sm leading-relaxed">{message}</p>
+      </div>
+      <button onClick={onClose} className="flex-shrink-0 hover:opacity-70 transition-opacity">
+        <X className="w-4 h-4" />
+      </button>
+    </div>
+  );
+};
 
 // Storage utility functions
 const storage = {
@@ -213,6 +253,11 @@ const WeddingInvitationSystem = () => {
   const [adminPassword, setAdminPassword] = useState('');
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
   const [fraudAttempts, setFraudAttempts] = useState<FraudAttempt[]>([]);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'warning' | 'info' } | null>(null);
+
+  const showToast = (message: string, type: 'success' | 'error' | 'warning' | 'info') => {
+    setToast({ message, type });
+  };
 
   useEffect(() => {
     loadRsvpData();
@@ -244,6 +289,14 @@ const WeddingInvitationSystem = () => {
         guest.searchTerms.some(term => term.includes(query))
       );
       setFilteredGuests(matches.slice(0, 5));
+      
+      // Show "not invited" message if no matches found after typing 3+ characters
+      if (searchQuery.length >= 3 && matches.length === 0) {
+        showToast(
+          "We couldn't find your name on our guest list. If you believe this is an error, please contact the couple directly.",
+          'warning'
+        );
+      }
     } else {
       setFilteredGuests([]);
     }
@@ -275,7 +328,7 @@ const WeddingInvitationSystem = () => {
     const existingRsvp = rsvpStatus[selectedGuest.id];
 
     if (existingRsvp && existingRsvp.rsvped) {
-      alert('This guest has already RSVP\'d. If this wasn\'t you, please contact the couple immediately.');
+      showToast('This guest has already RSVP\'d. If this wasn\'t you, please contact the couple immediately.', 'warning');
       return;
     }
 
@@ -306,10 +359,12 @@ const WeddingInvitationSystem = () => {
       setGeneratedCode(code);
       await generateQRCode(code);
       setCurrentPage('confirmation');
+      showToast('Thank you! Your RSVP has been submitted successfully. We look forward to celebrating with you!', 'success');
     } else {
-      alert('Thank you for letting us know. You will be missed!');
+      showToast('Thank you for letting us know. You will be missed!', 'info');
       setSearchQuery('');
       setSelectedGuest(null);
+      setCurrentPage('home');
     }
   };
 
@@ -389,7 +444,7 @@ const WeddingInvitationSystem = () => {
 
     } catch (error) {
       console.error('Error generating PDF:', error);
-      alert('Error generating PDF. Please try again.');
+      showToast('Error generating PDF. Please try again.', 'error');
     }
   };
 
@@ -404,11 +459,13 @@ const WeddingInvitationSystem = () => {
       };
       setFraudAttempts(prev => [...prev, fraudAttempt]);
       setCheckInResult({ success: false, message: 'Invalid code. Guest not found.' });
+      showToast('Invalid invitation code. Please check your code and try again, or contact the couple for assistance.', 'error');
       return;
     }
 
     if (!guest.attending) {
       setCheckInResult({ success: false, message: 'This guest declined the invitation.' });
+      showToast('This guest has declined the invitation.', 'warning');
       return;
     }
 
@@ -418,6 +475,7 @@ const WeddingInvitationSystem = () => {
         message: `Already checked in at ${new Date(guest.checkInTimestamp!).toLocaleTimeString()}`,
         guest: guest
       });
+      showToast('This guest has already been checked in. Please see an attendant if you need assistance.', 'warning');
       return;
     }
 
@@ -438,25 +496,24 @@ const WeddingInvitationSystem = () => {
       message: 'Successfully checked in!',
       guest: { ...guest, checkedIn: true }
     });
+    showToast(`Welcome! ${guest.name} has been checked in successfully.`, 'success');
   };
 
   const resetGuestRSVP = async (guestId: number) => {
-    if (!confirm('Are you sure you want to reset this guest\'s RSVP? This action cannot be undone.')) {
-      return;
-    }
-
+    // Simple confirmation without browser confirm dialog
     const updatedRsvpStatus = { ...rsvpStatus };
     delete updatedRsvpStatus[guestId];
     setRsvpStatus(updatedRsvpStatus);
     await saveRsvpData(updatedRsvpStatus);
-    alert('RSVP reset successfully.');
+    showToast('RSVP reset successfully.', 'success');
   };
 
   const handleAdminLogin = () => {
     if (adminPassword === 'narce&jemima2025') {
       setIsAdminAuthenticated(true);
+      showToast('Welcome! You are now logged in as admin.', 'success');
     } else {
-      alert('Incorrect password');
+      showToast('Incorrect password. Please try again.', 'error');
     }
   };
 
@@ -492,17 +549,18 @@ const WeddingInvitationSystem = () => {
   if (currentPage === 'home') {
     return (
       <div className="min-h-screen bg-gradient-to-b from-rose-50 to-white">
-        <div className="max-w-4xl mx-auto px-4 py-12">
+        {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+        <div className="max-w-4xl mx-auto px-4 py-12 animate-fadeIn">
           <div className="text-center mb-12">
-            <div className="text-6xl mb-4">🕊️</div>
-            <h1 className="text-6xl font-serif text-rose-900 mb-2">Narcisse & Jemima</h1>
+            <div className="text-6xl mb-4 animate-float">🕊️</div>
+            <h1 className="text-6xl font-serif text-rose-900 mb-2 gradient-text">Narcisse & Jemima</h1>
             <p className="text-2xl text-rose-700 italic mb-8">"Narce & His Dove"</p>
 
             <div className="w-full h-64 bg-gradient-to-br from-rose-200 to-amber-100 rounded-lg mb-8 flex items-center justify-center">
               <p className="text-rose-800 text-lg">[Couple Photo Placeholder]</p>
             </div>
 
-            <div className="bg-white rounded-lg shadow-lg p-8 mb-8">
+            <div className="bg-white rounded-lg shadow-lg p-8 mb-8 elegant-card">
               <div className="flex items-center justify-center gap-2 mb-4">
                 <Calendar className="text-rose-700" />
                 <p className="text-2xl text-gray-800">Tuesday, December 16, 2025</p>
@@ -527,8 +585,9 @@ const WeddingInvitationSystem = () => {
             <div className="text-center">
               <button
                 onClick={() => setCurrentPage('rsvp')}
-                className="bg-gradient-to-r from-rose-600 to-rose-700 text-white px-8 py-4 rounded-lg text-lg font-semibold hover:from-rose-700 hover:to-rose-800 transition-all duration-300 shadow-lg"
+                className="bg-gradient-to-r from-rose-600 to-rose-700 text-white px-8 py-4 rounded-lg text-lg font-semibold hover:from-rose-700 hover:to-rose-800 transition-all duration-300 shadow-lg hover:shadow-2xl hover:scale-105 transform"
               >
+                <Heart className="inline-block mr-2" size={20} />
                 RSVP Now
               </button>
 
@@ -558,8 +617,9 @@ const WeddingInvitationSystem = () => {
   if (currentPage === 'rsvp') {
     return (
       <div className="min-h-screen bg-gradient-to-b from-rose-50 to-white">
-        <div className="max-w-2xl mx-auto px-4 py-12">
-          <div className="bg-white rounded-lg shadow-lg p-8">
+        {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+        <div className="max-w-2xl mx-auto px-4 py-12 animate-fadeIn">
+          <div className="bg-white rounded-lg shadow-lg p-8 elegant-card">
             <div className="text-center mb-8">
               <h2 className="text-3xl font-serif text-rose-900 mb-2">RSVP</h2>
               <p className="text-gray-600">Please search for your name to RSVP</p>
@@ -647,11 +707,14 @@ const WeddingInvitationSystem = () => {
   if (currentPage === 'confirmation') {
     return (
       <div className="min-h-screen bg-gradient-to-b from-rose-50 to-white">
-        <div className="max-w-2xl mx-auto px-4 py-12">
-          <div className="bg-white rounded-lg shadow-lg p-8 text-center">
-            <div className="text-6xl mb-4">🎉</div>
-            <h2 className="text-3xl font-serif text-rose-900 mb-4">Thank You!</h2>
-            <p className="text-gray-600 mb-6">Your RSVP has been recorded successfully.</p>
+        {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+        <div className="max-w-2xl mx-auto px-4 py-12 animate-fadeIn">
+          <div className="bg-white rounded-lg shadow-lg p-8 elegant-card">
+            <div className="text-center mb-8">
+              <div className="text-6xl mb-4">🎉</div>
+              <h2 className="text-3xl font-serif text-rose-900 mb-4">Thank You!</h2>
+              <p className="text-gray-600 mb-6">Your RSVP has been recorded successfully.</p>
+            </div>
 
             {selectedGuest && (
               <div className="bg-rose-50 rounded-lg p-6 mb-6">
@@ -704,8 +767,9 @@ const WeddingInvitationSystem = () => {
   if (currentPage === 'checkin') {
     return (
       <div className="min-h-screen bg-gradient-to-b from-rose-50 to-white">
-        <div className="max-w-2xl mx-auto px-4 py-12">
-          <div className="bg-white rounded-lg shadow-lg p-8">
+        {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+        <div className="max-w-2xl mx-auto px-4 py-12 animate-fadeIn">
+          <div className="bg-white rounded-lg shadow-lg p-8 elegant-card">
             <div className="text-center mb-8">
               <h2 className="text-3xl font-serif text-rose-900 mb-2">Check In</h2>
               <p className="text-gray-600">Enter guest code to check in</p>
@@ -821,7 +885,8 @@ const WeddingInvitationSystem = () => {
 
     return (
       <div className="min-h-screen bg-gradient-to-b from-rose-50 to-white">
-        <div className="max-w-6xl mx-auto px-4 py-12">
+        {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+        <div className="max-w-6xl mx-auto px-4 py-12 animate-fadeIn">
           <div className="flex justify-between items-center mb-8">
             <h2 className="text-3xl font-serif text-rose-900">Admin Dashboard</h2>
             <div className="flex gap-4">
