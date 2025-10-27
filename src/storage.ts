@@ -42,72 +42,79 @@ export const initStorage = async () => {
 const setupListener = () => {
   if (!auth.currentUser) return;
   
-  const docRef = doc(db, 'dashboard', 'weddingData'); // Using a single document for all data
+  // User-specific document
+  const userDocRef = doc(db, 'userData', auth.currentUser.uid);
+  // Shared document
+  const sharedDocRef = doc(db, 'shared', 'weddingData');
   
-  unsubscribe = onSnapshot(docRef, (doc) => {
+  // Listen to user data
+  const userUnsubscribe = onSnapshot(userDocRef, (doc) => {
     if (doc.exists()) {
       const newData = doc.data() || {};
-      debug('Received data from Firestore:', newData);
-      cachedData = newData;
-      // Notify any listeners about the update
+      debug('Received user data from Firestore:', newData);
+      cachedData = { ...cachedData, ...newData };
       window.dispatchEvent(new CustomEvent('firestore-update', { detail: newData }));
     }
-  }, (error) => {
-    console.error('Error in Firestore listener:', error);
   });
+  
+  // Listen to shared data
+  const sharedUnsubscribe = onSnapshot(sharedDocRef, (doc) => {
+    if (doc.exists()) {
+      const sharedData = doc.data() || {};
+      const sharedUpdates = Object.fromEntries(
+        Object.entries(sharedData).map(([key, value]) => [`shared_${key}`, value])
+      );
+      debug('Received shared data from Firestore:', sharedUpdates);
+      cachedData = { ...cachedData, ...sharedUpdates };
+      window.dispatchEvent(new CustomEvent('firestore-update', { detail: sharedUpdates }));
+    }
+  });
+
+  // Return cleanup function
+  unsubscribe = () => {
+    userUnsubscribe();
+    sharedUnsubscribe();
+  };
 };
 
 export const storage = {
-  get: async (key: string): Promise<{ value: any }> => {
+  get: async (key: string, isShared: boolean = false): Promise<{ value: any }> => {
+    const cacheKey = isShared ? `shared_${key}` : key;
+    
     // First check if we have the data in cache
-    if (key in cachedData) {
-      debug(`Cache hit for key: ${key}`, cachedData[key]);
-      return { value: cachedData[key] };
-    } else {
-      debug(`Cache miss for key: ${key}`);
+    if (cacheKey in cachedData) {
+      debug(`Cache hit for key: ${cacheKey}`, cachedData[cacheKey]);
+      return { value: cachedData[cacheKey] };
     }
 
-    // If not in cache, try to get from Firestore
-    try {
-      if (!auth.currentUser) {
-        console.log('No authenticated user');
-        return { value: null };
-      }
-
-      const docRef = doc(db, 'dashboard', 'weddingData');
-      const docSnap = await getDoc(docRef);
-      
-      if (docSnap.exists()) {
-        const data = docSnap.data() || {};
-        cachedData = data; // Update cache
-        return { value: data[key] };
-      }
-      return { value: null };
-    } catch (error) {
-      console.error('Error getting from Firestore:', error);
-      return { value: null };
-    }
+    debug(`Cache miss for key: ${cacheKey}`);
+    return { value: null };
   },
 
-  set: async (key: string, value: any): Promise<boolean> => {
+  set: async (key: string, value: any, isShared: boolean = false): Promise<boolean> => {
     try {
       if (!auth.currentUser) {
         console.log('No authenticated user');
         return false;
       }
 
-      const docRef = doc(db, 'dashboard', 'weddingData');
+      const docRef = doc(
+        db, 
+        isShared ? 'shared/weddingData' : `userData/${auth.currentUser.uid}`
+      );
       
       // Update local cache immediately for better UX
-      const newData = { ...cachedData, [key]: value };
+      const cacheKey = isShared ? `shared_${key}` : key;
+      const newData = { ...cachedData, [cacheKey]: value };
       cachedData = newData;
       
       // Update Firestore
       const updateData = {
-        ...newData,
+        [key]: value,
         lastUpdated: serverTimestamp()
       };
-      debug('Saving to Firestore:', updateData);
+      
+      debug(`Saving to ${isShared ? 'shared' : 'user'} Firestore:`, updateData);
       await setDoc(docRef, updateData, { merge: true });
       debug('Successfully saved to Firestore');
       
