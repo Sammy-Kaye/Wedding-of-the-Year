@@ -3,7 +3,11 @@ import { Heart, Calendar, MapPin, Clock, Download, CheckCircle, Search, Users, U
 import QRCodeLib from 'qrcode';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
-import { storage } from './src/storage';
+import { storage, initStorage } from './src/storage';
+
+// Initialize storage when the app starts
+console.log('Initializing storage...');
+initStorage();
 
 // Toast Notification Component
 interface ToastProps {
