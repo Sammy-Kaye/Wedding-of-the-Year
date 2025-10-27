@@ -230,304 +230,277 @@ const WeddingInvitationSystem = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredGuests, setFilteredGuests] = useState<Guest[]>([]);
   const [selectedGuest, setSelectedGuest] = useState<Guest | null>(null);
-  const [rsvpStatus, setRsvpStatus] = useState<Record<number, RSVPData>>({});
-  const [generatedCode, setGeneratedCode] = useState<string | null>(null);
-  const [qrCodeUrl, setQrCodeUrl] = useState<string>('');
+  const [rsvpStatus, setRsvpStatus] = useState<Record<string, RSVPData>>({});
+  const [fraudAttempts, setFraudAttempts] = useState<FraudAttempt[]>([]);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [adminPassword, setAdminPassword] = useState('');
+  const [showPasswordInput, setShowPasswordInput] = useState(false);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'warning' | 'info' } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [generatedCode, setGeneratedCode] = useState('');
+  const [qrCodeUrl, setQrCodeUrl] = useState('');
   const [checkInCode, setCheckInCode] = useState('');
   const [checkInResult, setCheckInResult] = useState<CheckInResult | null>(null);
-  const [adminPassword, setAdminPassword] = useState('');
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
-  const [fraudAttempts, setFraudAttempts] = useState<FraudAttempt[]>([]);
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'warning' | 'info' } | null>(null);
+  const [stats, setStats] = useState({
+    totalGuests: 0,
+    rsvpedYes: 0,
+    rsvpedNo: 0,
+    checkedIn: 0,
+    pending: 0
+  });
 
   const showToast = (message: string, type: 'success' | 'error' | 'warning' | 'info') => {
     setToast({ message, type });
   };
 
   useEffect(() => {
-    loadRsvpData();
+    const loadRsvps = async () => {
+      try {
+        setLoading(true);
+        const rsvps = await storage.getRsvps();
+        setRsvpStatus(rsvps);
+
+        const handleRsvpUpdate = (event: Event) => {
+          const rsvps = (event as CustomEvent).detail;
+          setRsvpStatus(rsvps);
+        };
+
+        window.addEventListener('rsvps-updated', handleRsvpUpdate);
+
+        return () => {
+          window.removeEventListener('rsvps-updated', handleRsvpUpdate);
+        };
+      } catch (error) {
+        console.error('Error loading RSVPs:', error);
+        showToast('Error loading RSVPs. Please refresh the page.', 'error');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadRsvps();
   }, []);
 
-  const loadRsvpData = async () => {
+  useEffect(() => {
     try {
-      const result = await storage.get('wedding-rsvps');
-      if (result && result.value) {
-        setRsvpStatus(JSON.parse(result.value));
+      const savedFraudAttempts = localStorage.getItem('fraudAttempts');
+      if (savedFraudAttempts) {
+        setFraudAttempts(JSON.parse(savedFraudAttempts));
       }
     } catch (error) {
-      console.log('No existing RSVP data');
+      console.error('Error loading fraud attempts from localStorage:', error);
     }
-  };
-
-  const saveRsvpData = async (data: Record<number, RSVPData>) => {
-    try {
-      await storage.set('wedding-rsvps', JSON.stringify(data));
-    } catch (error) {
-      console.error('Error saving RSVP data:', error);
-    }
-  };
+  }, []);
 
   useEffect(() => {
-    if (searchQuery.length >= 2) {
-      const query = searchQuery.toLowerCase();
-      const matches = GUEST_LIST.filter(guest =>
-        guest.searchTerms.some(term => term.includes(query))
-      );
-      setFilteredGuests(matches.slice(0, 5));
-      
-      // Show "not invited" message if no matches found after typing 3+ characters
-      if (searchQuery.length >= 3 && matches.length === 0) {
-        showToast(
-          "We couldn't find your name on our guest list. If you believe this is an error, please contact the couple directly.",
-          'warning'
-        );
-      }
-    } else {
-      setFilteredGuests([]);
-    }
-  }, [searchQuery]);
-
-  const generateCode = () => {
-    return Math.floor(100000 + Math.random() * 900000).toString();
-  };
-
-  const generateQRCode = async (code: string) => {
     try {
-      const qrUrl = await QRCodeLib.toDataURL(code, {
-        width: 200,
-        margin: 2,
-        color: {
-          dark: '#8B2332',
-          light: '#FFFFFF'
-        }
-      });
-      setQrCodeUrl(qrUrl);
+      localStorage.setItem('fraudAttempts', JSON.stringify(fraudAttempts));
     } catch (error) {
-      console.error('Error generating QR code:', error);
+      console.error('Error saving fraud attempts to localStorage:', error);
     }
-  };
+  }, [fraudAttempts]);
 
   const handleRsvp = async (attending: boolean) => {
     if (!selectedGuest) return;
 
-    const existingRsvp = rsvpStatus[selectedGuest.id];
-
-    if (existingRsvp && existingRsvp.rsvped) {
-      showToast('This guest has already RSVP\'d. If this wasn\'t you, please contact the couple immediately.', 'warning');
-      return;
+    const code = generateCode(selectedGuest.id);
+    setGeneratedCode(code);
+    
+    // Generate QR code
+    try {
+      const qrData = `WEDDING-RSVP-${selectedGuest.id}-${code}`;
+      const qrUrl = await QRCodeLib.toDataURL(qrData, { width: 200, margin: 2 });
+      setQrCodeUrl(qrUrl);
+    } catch (error) {
+      console.error('Error generating QR code:', error);
     }
 
-    const code = generateCode();
-    const timestamp = new Date().toISOString();
-
-    const newRsvpData: RSVPData = {
+    const rsvpData: RSVPData = {
       guestId: selectedGuest.id,
       name: selectedGuest.name,
       partySize: selectedGuest.partySize,
-      code: code,
-      attending: attending,
+      code,
+      attending,
       rsvped: true,
-      rsvpTimestamp: timestamp,
+      rsvpTimestamp: new Date().toISOString(),
       checkedIn: false,
       checkInTimestamp: null
     };
 
-    const updatedRsvpStatus = {
-      ...rsvpStatus,
-      [selectedGuest.id]: newRsvpData
-    };
-
-    setRsvpStatus(updatedRsvpStatus);
-    await saveRsvpData(updatedRsvpStatus);
-
-    if (attending) {
-      setGeneratedCode(code);
-      await generateQRCode(code);
-      setCurrentPage('confirmation');
-      showToast('Thank you! Your RSVP has been submitted successfully. We look forward to celebrating with you!', 'success');
-    } else {
-      showToast('Thank you for letting us know. You will be missed!', 'info');
-      setSearchQuery('');
-      setSelectedGuest(null);
-      setCurrentPage('home');
-    }
-  };
-
-  const downloadPDF = async () => {
-    if (!selectedGuest || !generatedCode) return;
-
     try {
-      // Create invitation element for PDF generation
-      const invitationElement = document.createElement('div');
-      invitationElement.style.width = '800px';
-      invitationElement.style.height = '1000px';
-      invitationElement.style.position = 'absolute';
-      invitationElement.style.left = '-9999px';
-      invitationElement.style.background = `linear-gradient(135deg, #8B2332 0%, #D4AF37 100%)`;
-      invitationElement.style.display = 'flex';
-      invitationElement.style.flexDirection = 'column';
-      invitationElement.style.alignItems = 'center';
-      invitationElement.style.justifyContent = 'center';
-      invitationElement.style.fontFamily = 'serif';
-      invitationElement.style.color = 'white';
+      const success = await storage.submitRsvp(selectedGuest.name, rsvpData);
 
-      invitationElement.innerHTML = `
-        <div style="text-align: center; padding: 40px;">
-          <div style="font-size: 60px; font-weight: bold; margin-bottom: 10px;">🕊️</div>
-          <div style="font-size: 48px; font-weight: bold; margin-bottom: 10px;">Narcisse & Jemima</div>
-          <div style="font-size: 24px; font-style: italic; margin-bottom: 40px;">"Narce & His Dove"</div>
-
-          <div style="background: rgba(255,255,255,0.1); padding: 30px; border-radius: 15px; margin: 40px 0;">
-            <div style="font-size: 32px; font-weight: bold; margin-bottom: 10px;">${selectedGuest.name}</div>
-            <div style="font-size: 20px; margin-bottom: 30px;">Party of ${selectedGuest.partySize}</div>
-
-            <div style="font-size: 64px; font-family: monospace; font-weight: bold; margin: 30px 0; letter-spacing: 8px;">${generatedCode}</div>
-            <div style="font-size: 18px; margin-bottom: 30px;">Your Unique Access Code</div>
-          </div>
-
-          <div style="font-size: 24px; font-weight: bold; margin: 20px 0;">Tuesday, December 16, 2025</div>
-          <div style="font-size: 20px; margin-bottom: 10px;">09:00 AM</div>
-          <div style="font-size: 18px; margin-bottom: 30px;">Plot 16, N14 & Steyn Rd<br>Krugersdorp</div>
-
-          <div style="font-size: 16px; font-weight: bold; margin: 20px 0;">Dress Code: Formal Attire</div>
-
-          <div style="font-size: 14px; margin-top: 40px; opacity: 0.8;">
-            This invitation is non-transferable<br>
-            Please present this code at the venue entrance
-          </div>
-        </div>
-      `;
-
-      document.body.appendChild(invitationElement);
-
-      const canvas = await html2canvas(invitationElement, {
-        width: 800,
-        height: 1000,
-        scale: 2,
-        backgroundColor: '#8B2332'
-      });
-
-      document.body.removeChild(invitationElement);
-
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF({
-        orientation: 'portrait',
-        unit: 'mm',
-        format: 'a4'
-      });
-
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = pdf.internal.pageSize.getHeight();
-      const imgWidth = canvas.width;
-      const imgHeight = canvas.height;
-      const ratio = Math.min(pdfWidth / imgWidth, pdfHeight / imgHeight);
-      const imgX = (pdfWidth - imgWidth * ratio) / 2;
-      const imgY = 0;
-
-      pdf.addImage(imgData, 'PNG', imgX, imgY, imgWidth * ratio, imgHeight * ratio);
-      pdf.save(`Wedding_Invitation_${selectedGuest.name.replace(/\s+/g, '_')}.pdf`);
-
+      if (success) {
+        showToast(
+          attending
+            ? `Thank you for RSVP'ing! We can't wait to celebrate with you!`
+            : 'We will miss you! Thank you for letting us know.',
+          'success'
+        );
+        setCurrentPage('confirmation');
+      } else {
+        throw new Error('Failed to save RSVP');
+      }
     } catch (error) {
-      console.error('Error generating PDF:', error);
-      showToast('Error generating PDF. Please try again.', 'error');
+      console.error('Error saving RSVP:', error);
+      showToast('Error saving your RSVP. Please try again.', 'error');
     }
   };
 
-  const handleCheckIn = async () => {
-    const guest = Object.values(rsvpStatus).find((g) => (g as RSVPData).code === checkInCode);
-
-    if (!guest) {
-      const fraudAttempt: FraudAttempt = {
-        code: checkInCode,
-        timestamp: new Date().toISOString(),
-        type: 'invalid_code'
-      };
-      setFraudAttempts(prev => [...prev, fraudAttempt]);
-      setCheckInResult({ success: false, message: 'Invalid code. Guest not found.' });
-      showToast('Invalid invitation code. Please check your code and try again, or contact the couple for assistance.', 'error');
-      return;
+  const handleCheckInSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!checkInCode) return;
+    
+    const result = await handleCheckIn(checkInCode);
+    if (result.success) {
+      setCheckInCode('');
     }
+  };
 
-    if (!guest.attending) {
-      setCheckInResult({ success: false, message: 'This guest declined the invitation.' });
-      showToast('This guest has declined the invitation.', 'warning');
-      return;
-    }
+  const handleCheckIn = async (code: string): Promise<CheckInResult> => {
+    setCheckInResult(null);
+    try {
+      const guestEntry = Object.entries(rsvpStatus).find(([_, rsvp]) => rsvp.code === code);
 
-    if (guest.checkedIn) {
-      setCheckInResult({
-        success: false,
-        message: `Already checked in at ${new Date(guest.checkInTimestamp!).toLocaleTimeString()}`,
-        guest: guest
-      });
-      showToast('This guest has already been checked in. Please see an attendant if you need assistance.', 'warning');
-      return;
-    }
+      if (!guestEntry) {
+        const newAttempt: FraudAttempt = {
+          code,
+          timestamp: new Date().toISOString(),
+          type: 'invalid_code'
+        };
+        setFraudAttempts(prev => [...prev, newAttempt]);
 
-    const updatedRsvpData = {
-      ...rsvpStatus,
-      [guest.guestId]: {
-        ...guest,
+        return {
+          success: false,
+          message: 'Invalid check-in code. Please try again.'
+        };
+      }
+
+      const [guestId, guestData] = guestEntry;
+
+      if (guestData.checkedIn) {
+        return {
+          success: false,
+          message: `${guestData.name} has already been checked in.`,
+          guest: guestData
+        };
+      }
+
+      const updatedRsvp: RSVPData = {
+        ...guestData,
         checkedIn: true,
         checkInTimestamp: new Date().toISOString()
+      };
+
+      const success = await storage.submitRsvp(guestData.name, updatedRsvp);
+
+      if (!success) {
+        throw new Error('Failed to update check-in status');
       }
-    };
 
-    setRsvpStatus(updatedRsvpData);
-    await saveRsvpData(updatedRsvpData);
-
-    setCheckInResult({
-      success: true,
-      message: 'Successfully checked in!',
-      guest: { ...guest, checkedIn: true }
-    });
-    showToast(`Welcome! ${guest.name} has been checked in successfully.`, 'success');
-  };
-
-  const resetGuestRSVP = async (guestId: number) => {
-    // Simple confirmation without browser confirm dialog
-    const updatedRsvpStatus = { ...rsvpStatus };
-    delete updatedRsvpStatus[guestId];
-    setRsvpStatus(updatedRsvpStatus);
-    await saveRsvpData(updatedRsvpStatus);
-    showToast('RSVP reset successfully.', 'success');
-  };
-
-  const handleAdminLogin = () => {
-    if (adminPassword === 'narce&jemima2025') {
-      setIsAdminAuthenticated(true);
-      showToast('Welcome! You are now logged in as admin.', 'success');
-    } else {
-      showToast('Incorrect password. Please try again.', 'error');
+      const result = {
+        success: true,
+        message: `Successfully checked in ${guestData.name} (Party of ${guestData.partySize})`,
+        guest: updatedRsvp
+      };
+      setCheckInResult(result);
+      return result;
+    } catch (error) {
+      console.error('Error during check-in:', error);
+      return {
+        success: false,
+        message: 'An error occurred during check-in. Please try again.'
+      };
     }
   };
 
-  const exportData = () => {
-    const dataStr = JSON.stringify(rsvpStatus, null, 2);
-    const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+  const exportData = async () => {
+    try {
+      const rsvps = await storage.getAllRsvps();
+      const dataStr = JSON.stringify(rsvps, null, 2);
+      const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr);
 
-    const exportFileDefaultName = `wedding-rsvp-data-${new Date().toISOString().split('T')[0]}.json`;
+      const exportFileDefaultName = `wedding-rsvp-data-${new Date().toISOString().split('T')[0]}.json`;
 
-    const linkElement = document.createElement('a');
-    linkElement.setAttribute('href', dataUri);
-    linkElement.setAttribute('download', exportFileDefaultName);
-    linkElement.click();
+      const linkElement = document.createElement('a');
+      linkElement.setAttribute('href', dataUri);
+      linkElement.setAttribute('download', exportFileDefaultName);
+      linkElement.click();
+
+      showToast('RSVP data exported successfully', 'success');
+    } catch (error) {
+      console.error('Error exporting data:', error);
+      showToast('Error exporting RSVP data', 'error');
+    }
   };
 
-  const getStats = () => {
+  const updateStats = () => {
     const rsvps = Object.values(rsvpStatus) as RSVPData[];
     const totalGuests = GUEST_LIST.reduce((sum, g) => sum + g.partySize, 0);
-    const rsvpedYes = rsvps.filter(r => r.attending).reduce((sum, r) => sum + r.partySize, 0);
-    const rsvpedNo = rsvps.filter(r => !r.attending).reduce((sum, r) => sum + r.partySize, 0);
-    const checkedIn = rsvps.filter(r => r.checkedIn).reduce((sum, r) => sum + r.partySize, 0);
+    const rsvpedYes = rsvps.filter((r: RSVPData) => r.attending).reduce((sum: number, r: RSVPData) => sum + r.partySize, 0);
+    const rsvpedNo = rsvps.filter((r: RSVPData) => !r.attending).reduce((sum: number, r: RSVPData) => sum + r.partySize, 0);
+    const checkedIn = rsvps.filter((r: RSVPData) => r.checkedIn).reduce((sum: number, r: RSVPData) => sum + r.partySize, 0);
+
+    setStats({
+      totalGuests,
+    const checkedIn = getStats().checkedIn;
+    const pending = getStats().pending;
 
     return {
-      totalGuests,
+      totalGuests: getStats().totalGuests,
       rsvpedYes,
       rsvpedNo,
       checkedIn,
-      pending: totalGuests - rsvpedYes - rsvpedNo
+      pending
     };
+  };
+
+  const generateCode = (id: number): string => {
+    // Simple code generation based on guest ID
+    return `WED-${id.toString().padStart(4, '0')}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`;
+  };
+
+  const downloadPDF = async () => {
+    if (!selectedGuest) return;
+    
+    const input = document.getElementById('confirmation-card');
+    if (!input) return;
+    
+    try {
+      const canvas = await html2canvas(input as HTMLElement);
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const imgProps = pdf.getImageProperties(imgData);
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+      
+      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+      pdf.save(`wedding-invitation-${selectedGuest.name.replace(/\s+/g, '-').toLowerCase()}.pdf`);
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      showToast('Error generating PDF', 'error');
+    }
+  };
+
+  const handleAdminLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    // In a real app, you'd verify the password on the server
+    if (adminPassword === 'admin123') { // Replace with secure authentication
+      setIsAdminAuthenticated(true);
+      showToast('Successfully logged in as admin', 'success');
+    } else {
+      showToast('Incorrect password', 'error');
+    }
+  };
+
+  const resetGuestRSVP = (guestId: number) => {
+    setRsvpStatus(prev => {
+      const updated = { ...prev };
+      delete updated[guestId];
+      return updated;
+    });
+    showToast('Guest RSVP has been reset', 'success');
   };
 
   // HomePage

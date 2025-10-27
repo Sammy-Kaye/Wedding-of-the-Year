@@ -1,4 +1,4 @@
-import { doc, getDoc, setDoc, onSnapshot, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, onSnapshot, serverTimestamp, collection, getDocs, query, where, updateDoc, arrayUnion } from 'firebase/firestore';
 import { auth, db, initAuth } from './firebase';
 
 // Debug logging function
@@ -42,90 +42,89 @@ export const initStorage = async () => {
 const setupListener = () => {
   if (!auth.currentUser) return;
   
-  // User-specific document
-  const userDocRef = doc(db, 'userData', auth.currentUser.uid);
-  // Shared document
-  const sharedDocRef = doc(db, 'shared', 'weddingData');
+  // Shared document for all RSVPs
+  const rsvpsRef = collection(db, 'rsvps');
   
-  // Listen to user data
-  const userUnsubscribe = onSnapshot(userDocRef, (doc) => {
-    if (doc.exists()) {
-      const newData = doc.data() || {};
-      debug('Received user data from Firestore:', newData);
-      cachedData = { ...cachedData, ...newData };
-      window.dispatchEvent(new CustomEvent('firestore-update', { detail: newData }));
-    }
-  });
-  
-  // Listen to shared data
-  const sharedUnsubscribe = onSnapshot(sharedDocRef, (doc) => {
-    if (doc.exists()) {
-      const sharedData = doc.data() || {};
-      const sharedUpdates = Object.fromEntries(
-        Object.entries(sharedData).map(([key, value]) => [`shared_${key}`, value])
-      );
-      debug('Received shared data from Firestore:', sharedUpdates);
-      cachedData = { ...cachedData, ...sharedUpdates };
-      window.dispatchEvent(new CustomEvent('firestore-update', { detail: sharedUpdates }));
-    }
+  // Listen to RSVPs
+  const rsvpsUnsubscribe = onSnapshot(rsvpsRef, (snapshot) => {
+    const rsvps: Record<string, any> = {};
+    snapshot.forEach((doc) => {
+      rsvps[doc.id] = doc.data();
+    });
+    
+    debug('Received RSVPs from Firestore:', rsvps);
+    cachedData = { ...cachedData, rsvps };
+    window.dispatchEvent(new CustomEvent('rsvps-updated', { detail: rsvps }));
   });
 
   // Return cleanup function
   unsubscribe = () => {
-    userUnsubscribe();
-    sharedUnsubscribe();
+    rsvpsUnsubscribe();
   };
 };
 
 export const storage = {
-  get: async (key: string, isShared: boolean = false): Promise<{ value: any }> => {
-    const cacheKey = isShared ? `shared_${key}` : key;
-    
-    // First check if we have the data in cache
-    if (cacheKey in cachedData) {
-      debug(`Cache hit for key: ${cacheKey}`, cachedData[cacheKey]);
-      return { value: cachedData[cacheKey] };
+  // Get all RSVPs
+  getRsvps: async (): Promise<Record<string, any>> => {
+    try {
+      const q = query(collection(db, 'rsvps'));
+      const querySnapshot = await getDocs(q);
+      const rsvps: Record<string, any> = {};
+      
+      querySnapshot.forEach((doc) => {
+        rsvps[doc.id] = doc.data();
+      });
+      
+      return rsvps;
+    } catch (error) {
+      console.error('Error getting RSVPs:', error);
+      return {};
     }
-
-    debug(`Cache miss for key: ${cacheKey}`);
-    return { value: null };
   },
 
-  set: async (key: string, value: any, isShared: boolean = false): Promise<boolean> => {
+  // Submit RSVP
+  submitRsvp: async (inviteeName: string, rsvpData: any): Promise<boolean> => {
     try {
       if (!auth.currentUser) {
         console.log('No authenticated user');
         return false;
       }
 
-      const docRef = doc(
-        db, 
-        isShared ? 'shared/weddingData' : `userData/${auth.currentUser.uid}`
-      );
+      const rsvpRef = doc(db, 'rsvps', inviteeName);
       
-      // Update local cache immediately for better UX
-      const cacheKey = isShared ? `shared_${key}` : key;
-      const newData = { ...cachedData, [cacheKey]: value };
-      cachedData = newData;
-      
-      // Update Firestore
-      const updateData = {
-        [key]: value,
+      await setDoc(rsvpRef, {
+        ...rsvpData,
+        submittedBy: auth.currentUser.uid,
+        submittedAt: serverTimestamp(),
         lastUpdated: serverTimestamp()
-      };
+      }, { merge: true });
       
-      debug(`Saving to ${isShared ? 'shared' : 'user'} Firestore:`, updateData);
-      await setDoc(docRef, updateData, { merge: true });
-      debug('Successfully saved to Firestore');
-      
+      debug('RSVP submitted successfully');
       return true;
     } catch (error) {
-      console.error('Error writing to Firestore:', error);
+      console.error('Error submitting RSVP:', error);
       return false;
+    }
+  },
+
+  // Admin: Get all RSVPs
+  getAllRsvps: async (): Promise<Record<string, any>> => {
+    try {
+      const q = query(collection(db, 'rsvps'));
+      const querySnapshot = await getDocs(q);
+      const rsvps: Record<string, any> = {};
+      
+      querySnapshot.forEach((doc) => {
+        rsvps[doc.id] = doc.data();
+      });
+      
+      return rsvps;
+    } catch (error) {
+      console.error('Error getting all RSVPs:', error);
+      return {};
     }
   }
 };
 
 // Initialize storage when this module is loaded
-// We'll let the main app control when to initialize storage
-// to ensure proper loading sequence
+initStorage().catch(console.error);
