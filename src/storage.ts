@@ -1,5 +1,5 @@
 import { doc, getDoc, setDoc, onSnapshot, serverTimestamp } from 'firebase/firestore';
-import { auth, db } from './firebase';
+import { auth, db, initAuth } from './firebase';
 
 // Debug logging function
 const debug = (...args: any[]) => {
@@ -15,18 +15,27 @@ let cachedData: Record<string, any> = {};
 let unsubscribe: (() => void) | null = null;
 
 // Initialize the storage and set up real-time listener
-export const initStorage = () => {
-  if (unsubscribe) return; // Already initialized
+export const initStorage = async () => {
+  if (unsubscribe) {
+    debug('Storage already initialized');
+    return;
+  }
 
-  if (auth.currentUser) {
-    setupListener();
-  } else {
-    const unsubscribeAuth = auth.onAuthStateChanged((user) => {
-      if (user) {
-        setupListener();
-        unsubscribeAuth();
-      }
-    });
+  try {
+    debug('Initializing storage...');
+    if (!auth.currentUser) {
+      debug('No authenticated user, initializing auth...');
+      await initAuth();
+    }
+    
+    if (auth.currentUser) {
+      debug('User authenticated:', auth.currentUser.uid);
+      setupListener();
+    } else {
+      debug('Failed to authenticate user');
+    }
+  } catch (error) {
+    console.error('Error initializing storage:', error);
   }
 };
 
@@ -111,4 +120,5 @@ export const storage = {
 };
 
 // Initialize storage when this module is loaded
-initStorage();
+// We'll let the main app control when to initialize storage
+// to ensure proper loading sequence
