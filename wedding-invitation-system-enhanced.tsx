@@ -441,19 +441,15 @@ const WeddingInvitationSystem = () => {
     const rsvpedYes = rsvps.filter((r: RSVPData) => r.attending).reduce((sum: number, r: RSVPData) => sum + r.partySize, 0);
     const rsvpedNo = rsvps.filter((r: RSVPData) => !r.attending).reduce((sum: number, r: RSVPData) => sum + r.partySize, 0);
     const checkedIn = rsvps.filter((r: RSVPData) => r.checkedIn).reduce((sum: number, r: RSVPData) => sum + r.partySize, 0);
+    const pending = totalGuests - rsvpedYes - rsvpedNo;
 
     setStats({
       totalGuests,
-    const checkedIn = getStats().checkedIn;
-    const pending = getStats().pending;
-
-    return {
-      totalGuests: getStats().totalGuests,
       rsvpedYes,
       rsvpedNo,
       checkedIn,
       pending
-    };
+    });
   };
 
   const generateCode = (id: number): string => {
@@ -707,7 +703,7 @@ const WeddingInvitationSystem = () => {
                 onClick={() => {
                   setCurrentPage('home');
                   setSelectedGuest(null);
-                  setGeneratedCode(null);
+                  setGeneratedCode('');
                   setQrCodeUrl('');
                 }}
                 className="bg-gray-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-gray-700 transition-colors"
@@ -744,15 +740,15 @@ const WeddingInvitationSystem = () => {
               />
             </div>
 
-            <div className="text-center mb-6">
+            <form onSubmit={handleCheckInSubmit} className="text-center mb-6">
               <button
-                onClick={handleCheckIn}
+                type="submit"
                 disabled={checkInCode.length !== 6}
                 className="bg-rose-600 text-white px-8 py-4 rounded-lg font-semibold hover:bg-rose-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
               >
                 Check In Guest
               </button>
-            </div>
+            </form>
 
             {checkInResult && (
               <div className={`rounded-lg p-4 mb-6 ${checkInResult.success ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
@@ -809,7 +805,7 @@ const WeddingInvitationSystem = () => {
                   value={adminPassword}
                   onChange={(e) => setAdminPassword(e.target.value)}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-rose-500 focus:border-transparent"
-                  onKeyPress={(e) => e.key === 'Enter' && handleAdminLogin()}
+                  onKeyPress={(e) => e.key === 'Enter' && handleAdminLogin(e)}
                 />
               </div>
 
@@ -839,7 +835,22 @@ const WeddingInvitationSystem = () => {
 
   // Admin Dashboard
   if (currentPage === 'admin' && isAdminAuthenticated) {
-    const stats = getStats();
+    const stats = (() => {
+      const rsvps = Object.values(rsvpStatus) as RSVPData[];
+      const totalGuests = GUEST_LIST.reduce((sum, g) => sum + g.partySize, 0);
+      const rsvpedYes = rsvps.filter((r) => r.attending).reduce((sum, r) => sum + r.partySize, 0);
+      const rsvpedNo = rsvps.filter((r) => !r.attending).reduce((sum, r) => sum + r.partySize, 0);
+      const checkedIn = rsvps.filter((r) => r.checkedIn).reduce((sum, r) => sum + r.partySize, 0);
+      const pending = totalGuests - rsvpedYes - rsvpedNo;
+      
+      return {
+        totalGuests,
+        rsvpedYes,
+        rsvpedNo,
+        checkedIn,
+        pending
+      };
+    })();
 
     return (
       <div className="min-h-screen bg-gradient-to-b from-rose-50 to-white">
